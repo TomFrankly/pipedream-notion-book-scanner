@@ -1,12 +1,23 @@
+// Import Axios, which is used to make HTTP requests to APIs (in this case, Google Books and Open Library): https://axios-http.com/docs/intro
 import axios from "axios";
+
+// Import async-retry, which is used to retry requests if they fail: https://github.com/vercel/async-retry
 import retry from "async-retry";
 
 export default defineComponent({
   methods: {
+    /**
+     * Fetches the book data from the given URL. This is a generic method that can make requests to multiple APIs.
+     * 
+     * In this case, we'll use it to fetch data from both Google Books and Open Library.
+     * 
+     * Uses async-retry to retry the request up to 3 times if it fails.
+     */
     async fetchBookData(url) {
       return await retry(
-        async (bail) => {
+        async (bail, attempt) => {
           try {
+            console.log(`Fetching data from URL: ${url} (Attempt ${attempt})`)
             const response = await axios.get(url);
             if (response.status === 200) {
               return response.data;
@@ -33,13 +44,12 @@ export default defineComponent({
         },
         {
           retries: 3,
-          minTimeout: 2000,
-          onRetry: (error, attempt) => {
-            console.error(`Attempt ${attempt} failed: ${error.message}`);
-          },
         }
       );
     },
+    /**
+     * Gets the highest-resolution cover image available from Open Library, given the book's ISBN.
+     */
     async fetchBookCover(isbn) {
       // Get the highest-resolution cover from Open Library that we can
       console.log(`Attempting to fetch the cover image.`);
@@ -50,6 +60,8 @@ export default defineComponent({
       // For each size, starting from the largest size, see if the cover exists.
       for (let size of sizes) {
         console.log(`Checking cover size: ${size}`);
+        
+        // When we add "?default=false" to the URL, cover images that don't exist will return a 404.
         const coverURL = `${baseCoverURL}-${size}.jpg?default=false`;
 
         try {
@@ -70,6 +82,9 @@ export default defineComponent({
         }
       }
     },
+    /**
+     * Builds the book title, appending the subtitle to the original title if it exists.
+     */
     buildBookTitle(book) {
       console.log(`Building the book title.`);
       let title = book.title;
@@ -80,6 +95,9 @@ export default defineComponent({
 
       return title;
     },
+    /**
+     * Constructs the final book record, removing any empty fields.
+     */
     constructBookRecord(book) {
       // Remove empty fields from the book record
       const finalBookRecord = Object.keys(book).reduce((acc, key) => {
@@ -98,7 +116,7 @@ export default defineComponent({
   },
   async run({ steps, $ }) {
     const googleBooksAPIKey = process.env.GOOGLE_BOOKS;
-    const isbn = steps.trigger.event.body.isbn;
+    const isbn = parseInt(steps.trigger.event.body.isbn.replace(/-/g, ""))
 
     const book = {
       db: "",
@@ -193,7 +211,7 @@ export default defineComponent({
           book.author = fullRecordResponse.volumeInfo.authors.join(", ");
           book.page_count = fullRecordResponse.volumeInfo.pageCount ?? "";
           book.publish_date =
-            fullRecordResponse.volumeInfo.publishedDate.substring(0, 4) ?? ""; // Get only the year
+            parseInt(fullRecordResponse.volumeInfo.publishedDate.substring(0, 4)) ?? ""; // Get only the year
           book.full_record = fullRecordResponse.volumeInfo;
         } else if (book.db === "open_library") {
           // We didn't find a valid Google Books match, so we'll use the Open Library record.
@@ -204,7 +222,7 @@ export default defineComponent({
           book.title = this.buildBookTitle(openLibraryBook);
           book.author = openLibraryBook.author_name.join(", ");
           book.page_count = openLibraryBook.number_of_pages_median ?? "";
-          book.publish_date = openLibraryBook.first_publish_year ?? "";
+          book.publish_date = parseInt(openLibraryBook.first_publish_year) ?? "";
           book.status = "Exact match";
           book.full_record = openLibraryBook;
         }
