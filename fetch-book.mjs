@@ -126,7 +126,7 @@ export default defineComponent({
       author: "",
       cover_image: "",
       isbn_13: isbn,
-      publish_date: "",
+      publish_year: "",
       page_count: "",
       full_record: "",
     };
@@ -210,7 +210,7 @@ export default defineComponent({
           book.title = this.buildBookTitle(fullRecordResponse.volumeInfo);
           book.author = fullRecordResponse.volumeInfo.authors.join(", ");
           book.page_count = fullRecordResponse.volumeInfo.pageCount ?? "";
-          book.publish_date =
+          book.publish_year =
             parseInt(fullRecordResponse.volumeInfo.publishedDate.substring(0, 4)) ?? ""; // Get only the year
           book.full_record = fullRecordResponse.volumeInfo;
         } else if (book.db === "open_library") {
@@ -222,7 +222,7 @@ export default defineComponent({
           book.title = this.buildBookTitle(openLibraryBook);
           book.author = openLibraryBook.author_name.join(", ");
           book.page_count = openLibraryBook.number_of_pages_median ?? "";
-          book.publish_date = parseInt(openLibraryBook.first_publish_year) ?? "";
+          book.publish_year = parseInt(openLibraryBook.first_publish_year) ?? "";
           book.status = "Exact match";
           book.full_record = openLibraryBook;
         }
