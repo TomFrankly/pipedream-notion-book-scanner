@@ -140,6 +140,9 @@ export default defineComponent({
       console.log(`Search response from Google Books:`);
       console.dir(searchResponse);
 
+      // Create an Open Library variable in a high enough scope, in case we need to use it later
+      let openLibraryBook = null
+
       // If the search was successful, store the book ID. Otherwise, use our fallback method to do it.
       if (searchResponse.items && searchResponse.items.length > 0) {
         book.db = "google_books";
@@ -162,7 +165,7 @@ export default defineComponent({
             `Found book in Open Library. Searching Google Books for a match using other ISBN numbers for this title.`
           );
           // Store the Open Library entry data in case we need to fall back on it
-          const openLibraryBook = openLibraryResponse.docs[0];
+          openLibraryBook = openLibraryResponse.docs[0];
           // Get only the ISBN-13 numbers
           const ISBNArray = openLibraryResponse.docs[0].isbn.filter(
             (edition) => edition.length === 13
@@ -208,19 +211,19 @@ export default defineComponent({
 
           // Add the info to the book object
           book.title = this.buildBookTitle(fullRecordResponse.volumeInfo);
-          book.author = fullRecordResponse.volumeInfo.authors.join(", ");
+          book.author = fullRecordResponse.volumeInfo.authors?.join(", ") ?? "";
           book.page_count = fullRecordResponse.volumeInfo.pageCount ?? "";
           book.publish_year =
             parseInt(fullRecordResponse.volumeInfo.publishedDate.substring(0, 4)) ?? ""; // Get only the year
           book.full_record = fullRecordResponse.volumeInfo;
-        } else if (book.db === "open_library") {
+        } else if (book.db === "open_library" && openLibraryBook) {
           // We didn't find a valid Google Books match, so we'll use the Open Library record.
           console.log(
             `No valid Google Books match found. Using Open Library record.`
           );
 
           book.title = this.buildBookTitle(openLibraryBook);
-          book.author = openLibraryBook.author_name.join(", ");
+          book.author = openLibraryBook.author_name?.join(", ") ?? "";
           book.page_count = openLibraryBook.number_of_pages_median ?? "";
           book.publish_year = parseInt(openLibraryBook.first_publish_year) ?? "";
           book.status = "Exact match";
