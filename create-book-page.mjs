@@ -70,7 +70,7 @@ export default defineComponent({
       database_id: this.databaseID,
     });
 
-    const allowedTypes = ["title", "number", "rich_text"];
+    const allowedTypes = ["title", "number", "rich_text", "files"];
 
     const properties = database.properties;
 
@@ -123,6 +123,16 @@ export default defineComponent({
         type: "string",
         label: "ISBN-13 Number",
         description: "The ISBN-13 number of the book.",
+        optional: true,
+        options: allowedProperties.map((prop) => ({
+          label: prop,
+          value: prop,
+        })),
+      },
+      cover_image: {
+        type: "string",
+        label: "Book Cover Image",
+        description: "The file path to the book's cover image. You can select a Files & Media property here if you want to fill it with the book's cover image URL, which will also be set as the page's cover image.",
         optional: true,
         options: allowedProperties.map((prop) => ({
           label: prop,
@@ -235,6 +245,18 @@ export default defineComponent({
               number: book.isbn_13,
             },
           }),
+        ...(this.cover_image && book.cover_image && {
+          [this.cover_image]: {
+            files: [
+              {
+                name: "Cover Image",
+                external: {
+                  url: book.cover_image,
+                }
+              }
+            ]
+          }
+        })
       },
     };
 
