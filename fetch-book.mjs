@@ -5,19 +5,32 @@ import axios from "axios";
 import retry from "async-retry";
 
 export default defineComponent({
+  props: {
+    google_books_key: {
+      type: "string",
+      label: "Google Books API Key",
+      description: `If you'd like to use the Google Books API to fetch book data, either enter your Google Books API key here or store is as an environment variable with the name GOOGLE_BOOKS.
+      
+      You can get a Google Books API key by following the instructions here: https://developers.google.com/books/docs/v1/using#APIKey.
+      
+      If you don't enter a key here or store on as an environment variable named GOOGLE_BOOKS, this step will only use the Open Library API to fetch book data.`,
+      optional: true,
+      secret: true,
+    },
+  },
   methods: {
     /**
      * Fetches the book data from the given URL. This is a generic method that can make requests to multiple APIs.
-     * 
+     *
      * In this case, we'll use it to fetch data from both Google Books and Open Library.
-     * 
+     *
      * Uses async-retry to retry the request up to 3 times if it fails.
      */
     async fetchBookData(url) {
       return await retry(
         async (bail, attempt) => {
           try {
-            console.log(`Fetching data from URL: ${url} (Attempt ${attempt})`)
+            console.log(`Fetching data from URL: ${url} (Attempt ${attempt})`);
             const response = await axios.get(url);
             if (response.status === 200) {
               return response.data;
@@ -60,7 +73,7 @@ export default defineComponent({
       // For each size, starting from the largest size, see if the cover exists.
       for (let size of sizes) {
         console.log(`Checking cover size: ${size}`);
-        
+
         // When we add "?default=false" to the URL, cover images that don't exist will return a 404.
         const coverURL = `${baseCoverURL}-${size}.jpg?default=false`;
 
@@ -115,42 +128,66 @@ export default defineComponent({
     },
   },
   async run({ steps, $ }) {
-    const googleBooksAPIKey = process.env.GOOGLE_BOOKS;
-    const isbn = parseInt(steps.trigger.event.body.isbn.replace(/-/g, ""))
-
-    const book = {
-      db: "",
-      db_id: "",
-      status: "",
-      title: "",
-      author: "",
-      cover_image: "",
-      isbn_13: isbn,
-      publish_year: "",
-      page_count: "",
-      full_record: "",
-    };
-
-    // Try fetching the book from the Google Books API
     try {
-      console.log(`Searching Google Books for book with ISBN: ${isbn}`);
-      const searchURL = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&key=${googleBooksAPIKey}`;
-      const searchResponse = await this.fetchBookData(searchURL);
+      // Set a variable for the Google Books API key. If it ends up null, we'll use the Open Library API instead.
+      let googleBooksAPIKey =
+        process.env.GOOGLE_BOOKS && process.env.GOOGLE_BOOKS !== ""
+          ? process.env.GOOGLE_BOOKS
+          : this.google_books_key && this.google_books_key !== ""
+          ? this.google_books_key
+          : null;
 
-      console.log(`Search response from Google Books:`);
-      console.dir(searchResponse);
+      // Set up variables for the ISBN number and the initial book object
+      const isbn = parseInt(steps.trigger.event.body.isbn.replace(/-/g, ""));
+
+      const book = {
+        db: "",
+        db_id: "",
+        status: "",
+        title: "",
+        author: "",
+        cover_image: "",
+        isbn_13: isbn,
+        publish_year: "",
+        page_count: "",
+        full_record: "",
+      };
+
+      // Set up Google Books search variables in a high enough scope to use later
+      let searchURL = null;
+      let searchResponse = null;
+
+      // Search for the book in the Google Books API, if the key is set. If not, skip directly to searching Open Library.
+      if (googleBooksAPIKey) {
+        console.log(`Searching Google Books for book with ISBN: ${isbn}`);
+        const searchURL = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&key=${googleBooksAPIKey}`;
+        const searchResponse = await this.fetchBookData(searchURL);
+
+        console.log(`Search response from Google Books:`);
+        console.dir(searchResponse);
+      } else {
+        console.log(
+          `Google Books API key not set. Only searching Open Library.`
+        );
+      }
 
       // Create an Open Library variable in a high enough scope, in case we need to use it later
-      let openLibraryBook = null
+      let openLibraryBook = null;
 
       // If the search was successful, store the book ID. Otherwise, use our fallback method to do it.
-      if (searchResponse.items && searchResponse.items.length > 0) {
+      if (
+        searchResponse &&
+        searchResponse.items &&
+        searchResponse.items.length > 0
+      ) {
         book.db = "google_books";
         book.db_id = searchResponse.items[0].id;
         book.status = "Exact match";
         console.log(`Found book in Google Books with ID: ${book.db_id}`);
       } else {
-        console.log(`No book found in Google Books. Using fallback method.`);
+        console.log(
+          `No book found in Google Books, or API key not set. Using Open Library method.`
+        );
 
         // Search for the book in the Open Library API
         const openLibraryURL = `https://openlibrary.org/search.json?q=${isbn}`;
@@ -161,9 +198,13 @@ export default defineComponent({
 
         // If the search was successful, get the book's other ISBN numbers and search Google Books for a valid match.
         if (openLibraryResponse.docs && openLibraryResponse.docs.length > 0) {
-          console.log(
-            `Found book in Open Library. Searching Google Books for a match using other ISBN numbers for this title.`
-          );
+          console.log(`Found book in Open Library.`);
+          if (googleBooksAPIKey) {
+            console.log(
+              `Searching Google Books for a match using other ISBN numbers for this title.`
+            );
+          }
+
           // Store the Open Library entry data in case we need to fall back on it
           openLibraryBook = openLibraryResponse.docs[0];
           // Get only the ISBN-13 numbers
@@ -171,21 +212,29 @@ export default defineComponent({
             (edition) => edition.length === 13
           );
 
-          // Loop through the ISBN-13 array, searching Google Books until we find a valid record.
-          for (let number of ISBNArray) {
-            console.log(`Searching Google Books for ISBN: ${number}`);
-            const searchURL = `https://www.googleapis.com/books/v1/volumes?q=isbn:${number}&key=${googleBooksAPIKey}`;
-            const searchResponse = await this.fetchBookData(searchURL);
+          // If Google Books API is set, search Google Books for the book returned by Open Library
+          if (googleBooksAPIKey) {
+            // Loop through the ISBN-13 array, searching Google Books until we find a valid record.
+            for (let number of ISBNArray) {
+              console.log(`Searching Google Books for ISBN: ${number}`);
+              const searchURL = `https://www.googleapis.com/books/v1/volumes?q=isbn:${number}&key=${googleBooksAPIKey}`;
+              const searchResponse = await this.fetchBookData(searchURL);
 
-            if (searchResponse.items && searchResponse.items.length > 0) {
-              console.log(`Found a valid match in Google Books.`);
-              book.db = "google_books";
-              book.db_id = searchResponse.items[0].id;
-              book.status = "Nearest match"
-              break;
+              if (searchResponse.items && searchResponse.items.length > 0) {
+                console.log(`Found a valid match in Google Books.`);
+                book.db = "google_books";
+                book.db_id = searchResponse.items[0].id;
+                book.status = "Nearest match";
+                break;
+              }
+
+              console.log(`No match found in Google Books.`);
+              book.db = "open_library";
+              book.db_id = openLibraryBook.key;
             }
-
-            console.log(`No match found in Google Books.`);
+          } else {
+            // If Google Books API is not set, use the Open Library record.
+            console.log(`Setting Open Library as the book database.`);
             book.db = "open_library";
             book.db_id = openLibraryBook.key;
           }
@@ -214,7 +263,9 @@ export default defineComponent({
           book.author = fullRecordResponse.volumeInfo.authors?.join(", ") ?? "";
           book.page_count = fullRecordResponse.volumeInfo.pageCount ?? "";
           book.publish_year =
-            parseInt(fullRecordResponse.volumeInfo.publishedDate.substring(0, 4)) ?? ""; // Get only the year
+            parseInt(
+              fullRecordResponse.volumeInfo.publishedDate.substring(0, 4)
+            ) ?? ""; // Get only the year
           book.full_record = fullRecordResponse.volumeInfo;
         } else if (book.db === "open_library" && openLibraryBook) {
           // We didn't find a valid Google Books match, so we'll use the Open Library record.
@@ -225,7 +276,8 @@ export default defineComponent({
           book.title = this.buildBookTitle(openLibraryBook);
           book.author = openLibraryBook.author_name?.join(", ") ?? "";
           book.page_count = openLibraryBook.number_of_pages_median ?? "";
-          book.publish_year = parseInt(openLibraryBook.first_publish_year) ?? "";
+          book.publish_year =
+            parseInt(openLibraryBook.first_publish_year) ?? "";
           book.status = "Exact match";
           book.full_record = openLibraryBook;
         }
