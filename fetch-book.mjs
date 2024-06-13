@@ -160,8 +160,8 @@ export default defineComponent({
       // Search for the book in the Google Books API, if the key is set. If not, skip directly to searching Open Library.
       if (googleBooksAPIKey) {
         console.log(`Searching Google Books for book with ISBN: ${isbn}`);
-        const searchURL = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&key=${googleBooksAPIKey}`;
-        const searchResponse = await this.fetchBookData(searchURL);
+        searchURL = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&key=${googleBooksAPIKey}`;
+        searchResponse = await this.fetchBookData(searchURL);
 
         console.log(`Search response from Google Books:`);
         console.dir(searchResponse);
